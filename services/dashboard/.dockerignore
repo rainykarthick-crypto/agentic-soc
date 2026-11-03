@@ -1,0 +1,5 @@
+# Keep the dashboard build context minimal (context is services/dashboard,
+# so this is mostly belt-and-braces).
+**/*.md
+.env
+.env.example

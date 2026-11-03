@@ -1,0 +1,16 @@
+# ---- the upstream agent is cloned on demand, not vendored ----
+vendor/
+
+# ---- secrets / local config ----
+.env
+
+# ---- runtime noise ----
+*.log
+__pycache__/
+*.pyc
+
+# ---- editor / OS noise ----
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/

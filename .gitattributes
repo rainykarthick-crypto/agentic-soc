@@ -1,0 +1,20 @@
+# Normalize line endings on commit.
+* text=auto
+
+# LF is required, not cosmetic: a CRLF shebang ("#!/bin/sh\r") cannot be exec'd
+# by the kernel. This exact failure appeared in another project's images.
+*.sh       text eol=lf
+*.py       text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.md       text eol=lf
+*.conf     text eol=lf
+Dockerfile text eol=lf
+.gitignore text eol=lf
+.dockerignore text eol=lf
+
+# Env files must be LF - a trailing \r becomes part of the value.
+.env.example text eol=lf
+
+# PowerShell is happy either way; CRLF is native on Windows.
+*.ps1      text eol=crlf

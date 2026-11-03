@@ -1,0 +1,145 @@
+# =============================================================================
+# Agentic SOC - a standalone, self-hosted security operations console
+# =============================================================================
+# Two services plus an optional local model:
+#   soc-agent      FastAPI + ReAct loop, blast-radius gate, rollback ledger
+#   soc-dashboard  this project's console (static UI + same-origin /api proxy)
+#   ollama         optional, profile "llm" - only if you do not already run one
+#
+# Reached only on loopback:
+#   console  http://127.0.0.1:3010
+#   api      http://127.0.0.1:8020
+#
+# Everything is pinned to 127.0.0.1. Nothing here is reachable from the LAN.
+# =============================================================================
+
+name: agentic-soc
+
+networks:
+  soc:
+    driver: bridge
+
+volumes:
+  ollama-models:
+  # The agent writes recalled episodes to /app/memory/episodes.json; without this
+  # volume that history is lost on every restart.
+  soc-memory:
+
+x-hardened: &hardened
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+
+  # ===========================================================================
+  # The agent: ReAct investigation loop + safety gates
+  # ===========================================================================
+  # Built from the upstream repository (cloned by scripts/setup.ps1). Two local
+  # patches are applied by setup and are visible in the running container:
+  #   * httpx timeout 60s -> 900s   (a reasoning reply needs 150s+ on modest CPUs)
+  #   * OLLAMA_URL read from env    (so this can share an existing model server)
+  soc-agent:
+    <<: *hardened
+    build:
+      context: ./vendor/Agentic-SOC/agent
+    image: agentic-soc/agent:local
+    container_name: soc-agent
+    networks: [soc]
+    ports:
+      - "127.0.0.1:8020:8000"
+    environment:
+      # Reuse whatever Ollama you already run. Use http://ollama:11434/api/generate
+      # instead if you start the bundled one with --profile llm.
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434/api/generate}
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+    extra_hosts:
+      # Lets the container reach a model server on the host (Linux needs this;
+      # Docker Desktop provides the name automatically).
+      - "host.docker.internal:host-gateway"
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      # Persists recalled episodes; the rootfs stays read-only.
+      - soc-memory:/app/memory
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+
+  # ===========================================================================
+  # The console
+  # ===========================================================================
+  soc-dashboard:
+    <<: *hardened
+    build:
+      context: ./services/dashboard
+    image: agentic-soc/dashboard:local
+    container_name: soc-dashboard
+    networks: [soc]
+    ports:
+      - "127.0.0.1:3010:80"
+    # nginx drops from root to the nginx user and chowns its temp dirs, so it
+    # needs these back even though cap_drop is ALL for everything else.
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
+    depends_on:
+      soc-agent:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+
+  # ===========================================================================
+  # Optional local model server - only if you do not already have Ollama
+  # ===========================================================================
+  #   docker compose --profile llm up -d
+  #   then set OLLAMA_URL=http://ollama:11434/api/generate in .env
+  # Published on 11435 so it does not collide with an existing Ollama on 11434.
+  ollama:
+    profiles: ["llm"]
+    image: ollama/ollama:latest
+    container_name: soc-ollama
+    networks: [soc]
+    ports:
+      - "127.0.0.1:11435:11434"
+    environment:
+      OLLAMA_KEEP_ALIVE: 30m
+    volumes:
+      - ollama-models:/root/.ollama
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 3g

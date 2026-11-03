@@ -1,0 +1,1263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic SOC</title>
+<!--
+  Self-contained by design: no CDN, no external fonts, no runtime JSX compiler.
+  Charts are hand-built SVG. All data comes from the agent through the nginx
+  /api/ proxy on this same origin.
+-->
+<style>
+:root {
+  --bg: #06090d;
+  --bg-grad: radial-gradient(1200px 600px at 12% -10%, #0d1b24 0%, transparent 60%),
+             radial-gradient(900px 500px at 88% 0%, #101a2b 0%, transparent 55%);
+  --panel: #0b1118;
+  --panel-2: #0e1620;
+  --line: #1b2836;
+  --line-soft: #14202c;
+  --text: #dbe7f3;
+  --muted: #7d92a8;
+  --dim: #4c6076;
+  --cyan: #22d3ee;
+  --emerald: #34d399;
+  --amber: #fbbf24;
+  --red: #f87171;
+  --violet: #a78bfa;
+  --blue: #60a5fa;
+  --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background-image: var(--bg-grad);
+  background-attachment: fixed;
+  min-height: 100vh;
+  padding-bottom: 32px;
+}
+
+/* faint technical grid behind everything */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, rgba(34,211,238,.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(34,211,238,.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.wrap { position: relative; z-index: 1; max-width: 1560px; margin: 0 auto; padding: 0 20px; }
+
+/* ---------------------------------------------------------------- topbar */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 58px;
+  margin: 0 -20px 18px;
+  padding: 0 20px;
+  background: rgba(6,9,13,.86);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand { display: flex; align-items: center; gap: 11px; }
+.brand svg { display: block; }
+.brand .name {
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: #eaf4ff;
+}
+.brand .name b { color: var(--cyan); font-weight: 600; }
+.brand .sub {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .18em;
+  color: var(--dim);
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+.spacer { flex: 1; }
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 27px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pill.ok { color: var(--emerald); border-color: rgba(52,211,153,.32); }
+.pill.warn { color: var(--amber); border-color: rgba(251,191,36,.32); }
+.pill.bad { color: var(--red); border-color: rgba(248,113,113,.32); }
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+.dot-live { animation: pulse 1.9s ease-in-out infinite; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .35; transform: scale(.82); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot-live, .slide-in { animation: none !important; }
+}
+
+.clock { font-family: var(--mono); font-size: 11.5px; color: var(--muted); letter-spacing: .06em; }
+
+/* ------------------------------------------------------------------ grid */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 14px;
+}
+
+.panel {
+  position: relative;
+  background: linear-gradient(180deg, var(--panel-2) 0%, var(--panel) 100%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px 16px;
+  overflow: hidden;
+}
+.panel::after {
+  /* top hairline highlight */
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(34,211,238,.38), transparent);
+}
+.panel h2 {
+  margin: 0 0 12px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: .17em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.panel h2 .count {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: .08em;
+}
+.panel h2 svg { opacity: .8; }
+
+.span-12 { grid-column: span 12; }
+.span-8 { grid-column: span 8; }
+.span-7 { grid-column: span 7; }
+.span-6 { grid-column: span 6; }
+.span-5 { grid-column: span 5; }
+.span-4 { grid-column: span 4; }
+.span-3 { grid-column: span 3; }
+
+@media (max-width: 1180px) {
+  .span-8, .span-7, .span-6, .span-5, .span-4, .span-3 { grid-column: span 12; }
+}
+
+/* ------------------------------------------------------------------- kpi */
+.kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; grid-column: span 12; }
+@media (max-width: 1180px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 620px) { .kpis { grid-template-columns: 1fr; } }
+
+.kpi {
+  position: relative;
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 13px 15px 12px;
+  overflow: hidden;
+}
+.kpi .label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.kpi .value {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 6px 0 2px;
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -.02em;
+  line-height: 1.1;
+}
+.kpi .value small { font-size: 10.5px; letter-spacing: .08em; color: var(--muted); font-weight: 400; }
+.kpi .spark { position: absolute; right: 10px; top: 14px; opacity: .9; }
+.kpi .foot { font-family: var(--mono); font-size: 10px; color: var(--dim); letter-spacing: .05em; }
+.kpi.accent-cyan .value { color: var(--cyan); }
+.kpi.accent-emerald .value { color: var(--emerald); }
+.kpi.accent-amber .value { color: var(--amber); }
+.kpi.accent-violet .value { color: var(--violet); }
+.kpi.accent-text .value { color: var(--text); font-size: 17px; }
+
+/* ----------------------------------------------------------------- chart */
+.chart-wrap { position: relative; }
+.chart-wrap svg { display: block; width: 100%; height: auto; }
+.chart-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .06em;
+  color: var(--dim);
+  pointer-events: none;
+}
+.axis-label { font-family: var(--mono); font-size: 9px; fill: var(--dim); letter-spacing: .06em; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; }
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+.legend i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+
+/* the donut keeps a fixed size; without this it inherits .chart-wrap svg
+   width:100% and inflates to the panel width, stretching the whole grid row */
+#donut { width: 176px; height: 176px; max-width: 100%; }
+
+.donut-legend { display: grid; gap: 7px; margin-top: 10px; }
+.donut-legend .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.donut-legend .row i { width: 8px; height: 8px; border-radius: 2px; }
+.donut-legend .row .n { margin-left: auto; color: var(--text); }
+
+/* -------------------------------------------------------------- composer */
+textarea {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+  padding: 11px 12px;
+  background: #070d13;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+}
+textarea:focus, button:focus-visible, .chip:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: 1px;
+}
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 9px 0 11px; }
+.chip {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .03em;
+  color: var(--muted);
+  background: #0a121a;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.chip:hover { color: var(--cyan); border-color: rgba(34,211,238,.45); }
+
+.actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+button {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: #0c1620;
+  color: var(--text);
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+}
+button:hover:not(:disabled) { border-color: rgba(34,211,238,.5); color: #fff; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary {
+  background: linear-gradient(180deg, rgba(34,211,238,.19), rgba(34,211,238,.09));
+  border-color: rgba(34,211,238,.5);
+  color: #c8f6ff;
+}
+button.good { border-color: rgba(52,211,153,.45); color: var(--emerald); background: rgba(52,211,153,.08); }
+button.bad { border-color: rgba(248,113,113,.45); color: var(--red); background: rgba(248,113,113,.08); }
+.hint { font-family: var(--mono); font-size: 10px; color: var(--dim); letter-spacing: .05em; }
+
+/* ---------------------------------------------------------------- badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.b-critical { color: #fca5a5; background: rgba(248,113,113,.13); border-color: rgba(248,113,113,.4); }
+.b-high     { color: #fdba74; background: rgba(251,146,60,.12); border-color: rgba(251,146,60,.36); }
+.b-medium   { color: #fde68a; background: rgba(251,191,36,.11); border-color: rgba(251,191,36,.32); }
+.b-low      { color: #86efac; background: rgba(52,211,153,.11); border-color: rgba(52,211,153,.32); }
+.b-info     { color: #a5d8ff; background: rgba(96,165,250,.11); border-color: rgba(96,165,250,.32); }
+.b-muted    { color: var(--muted); background: rgba(125,146,168,.09); border-color: var(--line); }
+
+/* ------------------------------------------------------------- approvals */
+.approval {
+  border: 1px solid rgba(251,191,36,.28);
+  background: linear-gradient(180deg, rgba(251,191,36,.06), transparent);
+  border-radius: 8px;
+  padding: 11px 12px;
+  margin-bottom: 10px;
+}
+.approval .top { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+.approval .tool { font-family: var(--mono); font-size: 11.5px; color: var(--amber); }
+.approval .params {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  background: #070d13;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  padding: 7px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 96px;
+  overflow: auto;
+}
+.approval .btns { display: flex; gap: 8px; margin-top: 9px; }
+
+/* ----------------------------------------------------------------- tools */
+.tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 9px; }
+.tool {
+  border: 1px solid var(--line-soft);
+  background: #0a1119;
+  border-radius: 8px;
+  padding: 10px 11px;
+}
+.tool .name { font-family: var(--mono); font-size: 11px; color: #cfe6f7; letter-spacing: .02em; }
+.tool .desc {
+  font-size: 10.5px;
+  color: var(--dim);
+  margin: 5px 0 8px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.meter { display: flex; gap: 2px; }
+.meter i { height: 4px; flex: 1; border-radius: 1px; background: #16222e; }
+
+/* ----------------------------------------------------------------- table */
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  font-weight: 500;
+  padding: 0 8px 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+td {
+  padding: 9px 8px 9px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 11.5px;
+  color: var(--muted);
+  vertical-align: top;
+}
+td.mono { font-family: var(--mono); font-size: 10.5px; color: var(--text); }
+td .copy {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--dim);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-left: 6px;
+  cursor: pointer;
+  background: transparent;
+}
+td .copy:hover { color: var(--cyan); border-color: rgba(34,211,238,.45); }
+
+/* ------------------------------------------------------------------ feed */
+.stream { display: grid; gap: 8px; max-height: 292px; overflow-y: auto; padding-right: 2px; }
+.stream::-webkit-scrollbar { width: 6px; }
+.stream::-webkit-scrollbar-thumb { background: #1b2836; border-radius: 3px; }
+.event {
+  border-left: 2px solid var(--line);
+  padding: 6px 0 6px 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.event .t { color: var(--dim); font-size: 9.5px; letter-spacing: .04em; }
+.event .m { color: #b9cddf; display: block; margin-top: 2px; }
+.event.ev-life { border-left-color: var(--cyan); }
+.event.ev-reason { border-left-color: var(--violet); }
+.event.ev-result { border-left-color: var(--emerald); }
+.event.ev-safety { border-left-color: var(--amber); }
+.event.ev-error { border-left-color: var(--red); }
+.slide-in { animation: slideIn .28s ease-out; }
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ------------------------------------------------------------------ misc */
+.empty {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--dim);
+  padding: 16px 0;
+  text-align: center;
+  letter-spacing: .04em;
+}
+.mem-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 9px; }
+.mem {
+  border: 1px solid var(--line-soft);
+  background: #0a1119;
+  border-radius: 8px;
+  padding: 10px 11px;
+}
+.mem .q { font-size: 11.5px; color: #cfe6f7; line-height: 1.45; }
+.mem .t { font-family: var(--mono); font-size: 9.5px; color: var(--dim); margin-top: 6px; }
+
+.banner {
+  display: none;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 14px;
+  padding: 9px 13px;
+  border: 1px solid rgba(248,113,113,.4);
+  background: rgba(248,113,113,.08);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #fca5a5;
+}
+.banner.show { display: flex; }
+
+.foot {
+  margin-top: 18px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--dim);
+  letter-spacing: .06em;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="topbar">
+    <div class="brand">
+      <svg width="22" height="24" viewBox="0 0 22 24" fill="none" aria-hidden="true">
+        <path d="M11 1.5 20 5v7.2c0 5-3.6 8.9-9 10.3-5.4-1.4-9-5.3-9-10.3V5l9-3.5Z"
+              stroke="#22d3ee" stroke-width="1.3" fill="rgba(34,211,238,.07)"/>
+        <path d="M7 12.2l2.6 2.6L15.2 9" stroke="#34d399" stroke-width="1.6"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div>
+        <div class="name">Agentic <b>SOC</b></div>
+        <div class="sub" id="envline">v1.0 &middot; on-prem &middot; local inference</div>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+
+    <span class="pill" id="statepill"><span class="dot"></span><span id="statetext">connecting</span></span>
+    <span class="pill" id="modelpill"><span class="dot"></span><span id="modeltext">model</span></span>
+    <span class="pill ok" id="linkpill"><span class="dot"></span><span id="linktext">api</span></span>
+    <span class="clock" id="clock">--:--:--</span>
+  </header>
+
+  <div class="banner" id="banner">
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 1.8 15 14H1L8 1.8Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+      <path d="M8 6v3.6M8 11.6v.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+    </svg>
+    <span id="bannertext">Agent API unreachable</span>
+  </div>
+
+  <main class="grid">
+
+    <!-- KPI strip -->
+    <section class="kpis" aria-label="Key metrics">
+      <div class="kpi accent-cyan">
+        <div class="label">Agent state</div>
+        <div class="value" id="kpi-state">--</div>
+        <div class="foot" id="kpi-state-foot">awaiting status</div>
+      </div>
+      <div class="kpi accent-emerald">
+        <div class="label">Tools online</div>
+        <div class="value"><span id="kpi-tools">--</span><small>registered</small></div>
+        <div class="foot" id="kpi-tools-foot">registry</div>
+      </div>
+      <div class="kpi accent-violet">
+        <div class="label">Events logged</div>
+        <div class="value"><span id="kpi-events">0</span><svg class="spark" id="spark-events" width="52" height="26" aria-hidden="true"></svg></div>
+        <div class="foot" id="kpi-events-foot">no activity yet</div>
+      </div>
+      <div class="kpi accent-amber">
+        <div class="label">Pending approvals</div>
+        <div class="value" id="kpi-approvals">0</div>
+        <div class="foot" id="kpi-approvals-foot">blast-radius gate</div>
+      </div>
+      <div class="kpi accent-text">
+        <div class="label">Last event</div>
+        <div class="value" id="kpi-last">--</div>
+        <div class="foot" id="kpi-last-foot">idle</div>
+      </div>
+    </section>
+
+    <!-- Activity timeline -->
+    <section class="panel span-8">
+      <h2>
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M1 12l4-5 3 3 3-5 4 4" stroke="#22d3ee" stroke-width="1.4"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Activity timeline
+        <span class="count" id="tl-range">last 60 min</span>
+      </h2>
+      <div class="chart-wrap">
+        <svg id="timeline" viewBox="0 0 760 160" role="img"
+             aria-label="Events per 2-minute bucket over the last hour"></svg>
+        <div class="chart-empty" id="tl-empty">no events recorded in this window</div>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--cyan)"></i> events / 2 min</span>
+        <span><i style="background:var(--violet)"></i> reasoning steps</span>
+        <span><i style="background:var(--amber)"></i> safety checks</span>
+      </div>
+    </section>
+
+    <!-- Event mix -->
+    <section class="panel span-4">
+      <h2>
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="8" cy="8" r="6" stroke="#a78bfa" stroke-width="1.4"/>
+          <path d="M8 2v6l4 2" stroke="#a78bfa" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+        Event mix
+        <span class="count" id="mix-total">0</span>
+      </h2>
+      <div class="chart-wrap" style="display:flex;justify-content:center">
+        <svg id="donut" viewBox="0 0 170 170" width="170" height="170" role="img"
+             aria-label="Distribution of event categories"></svg>
+      </div>
+      <div class="donut-legend" id="donut-legend"></div>
+    </section>
+
+    <!-- Composer -->
+    <section class="panel span-5">
+      <h2>
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M9 1 3 9h4l-1 6 6-8H8l1-6Z" stroke="#fbbf24" stroke-width="1.3"
+                stroke-linejoin="round"/>
+        </svg>
+        Trigger investigation
+      </h2>
+      <textarea id="alert" spellcheck="false"
+        placeholder="Describe the alert to investigate, e.g. SSH brute force — 47 failed attempts from 192.168.100.50 against victim-node"></textarea>
+      <div class="chips" id="chips"></div>
+      <div class="actions">
+        <button class="primary" id="dispatch">Dispatch agent</button>
+        <span class="hint" id="dispatch-hint">Ctrl+Enter</span>
+      </div>
+    </section>
+
+    <!-- Approvals -->
+    <section class="panel span-4">
+      <h2>
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M8 1.6 14 4v4.4c0 3.4-2.5 6-6 7-3.5-1-6-3.6-6-7V4l6-2.4Z"
+                stroke="#fbbf24" stroke-width="1.3"/>
+        </svg>
+        Pending approvals
+        <span class="count" id="ap-count">0</span>
+      </h2>
+      <div id="approvals"></div>
+    </section>
+
+    <!-- Live activity -->
+    <section class="panel span-3">
+      <h2>
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="8" cy="8" r="2.2" stroke="#34d399" stroke-width="1.3"/>
+          <path d="M3.2 12.8a6.8 6.8 0 0 1 0-9.6M12.8 3.2a6.8 6.8 0 0 1 0 9.6"
+                stroke="#34d399" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+        Live activity
+      </h2>
+      <div class="stream" id="stream"></div>
+    </section>
+
+    <!-- Tool registry -->
+    <section class="panel span-7">
+      <h2>
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M10.5 2.2a3.6 3.6 0 0 0-4 5.9L2 12.6 3.4 14l4.5-4.5a3.6 3.6 0 0 0 5.9-4L11.4 8 8 4.6l2.5-2.4Z"
+                stroke="#60a5fa" stroke-width="1.2" stroke-linejoin="round"/>
+        </svg>
+        Tool registry
+        <span class="count" id="tool-count">0 tools</span>
+      </h2>
+      <div class="tool-grid" id="tools"></div>
+    </section>
+
+    <!-- Rollback ledger -->
+    <section class="panel span-5">
+      <h2>
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M2 4h12M2 8h12M2 12h8" stroke="#34d399" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+        Rollback ledger
+        <span class="count" id="ledger-count">0 entries</span>
+      </h2>
+      <div id="ledger"></div>
+    </section>
+
+    <!-- Memory -->
+    <section class="panel span-12">
+      <h2>
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <rect x="2.5" y="2.5" width="11" height="11" rx="2" stroke="#a78bfa" stroke-width="1.3"/>
+          <path d="M5.5 6.5h5M5.5 9.5h3" stroke="#a78bfa" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+        Agent memory
+        <span class="count" id="mem-count">0 episodes</span>
+      </h2>
+      <div class="mem-grid" id="memory"></div>
+    </section>
+
+  </main>
+
+  <div class="foot">
+    <span id="foot-api">api: /api (proxied)</span>
+    <span>poll 2s</span>
+    <span>agentic-soc &middot; standalone</span>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var API = "/api";
+  var POLL_MS = 2000;
+  var state = {
+    status: { state: "unknown", current_task: null },
+    log: [],
+    approvals: [],
+    ledger: [],
+    memory: [],
+    tools: [],
+    health: null,
+    online: false,
+    lastOk: null,
+    seenEventIds: {}
+  };
+
+  // ---------------------------------------------------------------- helpers
+  function $(id) { return document.getElementById(id); }
+
+  function esc(v) {
+    return String(v === undefined || v === null ? "" : v)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function parseTs(ts) {
+    if (!ts) return null;
+    // Agent emits naive UTC ISO strings (datetime.utcnow().isoformat()).
+    var s = String(ts);
+    if (!/[Zz]|[+-]\d{2}:?\d{2}$/.test(s)) s += "Z";
+    var d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function hhmm(d) {
+    if (!d) return "--:--";
+    return String(d.getUTCHours()).padStart(2, "0") + ":" +
+           String(d.getUTCMinutes()).padStart(2, "0");
+  }
+
+  function ago(d) {
+    if (!d) return "never";
+    var s = Math.floor((Date.now() - d.getTime()) / 1000);
+    if (s < 5) return "just now";
+    if (s < 60) return s + "s ago";
+    if (s < 3600) return Math.floor(s / 60) + "m ago";
+    if (s < 86400) return Math.floor(s / 3600) + "h ago";
+    return Math.floor(s / 86400) + "d ago";
+  }
+
+  function truncate(s, n) {
+    s = String(s || "");
+    return s.length > n ? s.slice(0, n - 1) + "\u2026" : s;
+  }
+
+  // Event categories, keyed by the prefix the agent actually emits.
+  var CATS = [
+    { key: "life",   label: "lifecycle", color: "var(--cyan)",    hex: "#22d3ee", test: /^INVESTIGATION|^MAX_STEPS/ },
+    { key: "reason", label: "reasoning", color: "var(--violet)",  hex: "#a78bfa", test: /_THOUGHT$|_REASONING$/ },
+    { key: "result", label: "tool result", color: "var(--emerald)", hex: "#34d399", test: /_RESULT$/ },
+    { key: "safety", label: "safety",    color: "var(--amber)",   hex: "#fbbf24", test: /_SAFETY$/ },
+    { key: "error",  label: "error",     color: "var(--red)",     hex: "#f87171", test: /_ERROR$/ }
+  ];
+
+  function categoryOf(ev) {
+    var t = String(ev || "");
+    for (var i = 0; i < CATS.length; i++) if (CATS[i].test.test(t)) return CATS[i];
+    return { key: "other", label: "other", color: "var(--dim)", hex: "#4c6076" };
+  }
+
+  // ------------------------------------------------------------------- fetch
+  function getJSON(path) {
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, 4000);
+    return fetch(API + path, { signal: ctrl.signal, headers: { "Accept": "application/json" } })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .finally(function () { clearTimeout(timer); });
+  }
+
+  function postJSON(path) {
+    return fetch(API + path, { method: "POST", headers: { "Accept": "application/json" } })
+      .then(function (r) { return r.json().catch(function () { return {}; }); });
+  }
+
+  // ------------------------------------------------------------------- spark
+  function sparkline(values, w, h, hex) {
+    if (!values.length) values = [0, 0];
+    var max = Math.max.apply(null, values.concat([1]));
+    var step = values.length > 1 ? w / (values.length - 1) : w;
+    var pts = values.map(function (v, i) {
+      var x = i * step;
+      var y = h - 2 - (v / max) * (h - 4);
+      return x.toFixed(1) + "," + y.toFixed(1);
+    });
+    return '<polyline fill="none" stroke="' + hex + '" stroke-width="1.4" ' +
+           'stroke-linejoin="round" stroke-linecap="round" points="' + pts.join(" ") + '"/>';
+  }
+
+  // --------------------------------------------------------------- timeline
+  var BUCKETS = 30;              // 30 x 2 min = 60 min
+  function buildBuckets() {
+    var now = Date.now();
+    var size = 2 * 60 * 1000;
+    var start = now - BUCKETS * size;
+    var out = { start: start, size: size, total: new Array(BUCKETS).fill(0),
+                reason: new Array(BUCKETS).fill(0), safety: new Array(BUCKETS).fill(0) };
+    state.log.forEach(function (e) {
+      var d = parseTs(e.timestamp);
+      if (!d) return;
+      var idx = Math.floor((d.getTime() - start) / size);
+      if (idx < 0 || idx >= BUCKETS) return;
+      out.total[idx]++;
+      var c = categoryOf(e.event);
+      if (c.key === "reason") out.reason[idx]++;
+      if (c.key === "safety") out.safety[idx]++;
+    });
+    return out;
+  }
+
+  function renderTimeline() {
+    var svg = $("timeline");
+    var W = 760, H = 160, padL = 30, padB = 20, padT = 10;
+    var plotW = W - padL - 8, plotH = H - padB - padT;
+    var b = buildBuckets();
+    var max = Math.max.apply(null, b.total.concat([1]));
+    var n = BUCKETS;
+
+    var parts = [];
+    var grad =
+      '<defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0%" stop-color="#22d3ee" stop-opacity=".42"/>' +
+      '<stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>' +
+      '</linearGradient></defs>';
+
+    // horizontal grid + y labels (labels de-duplicated: with max=1 a naive
+    // 4-tick split prints 1,1,0,0 and looks broken)
+    var seenTick = {};
+    for (var g = 0; g <= 3; g++) {
+      var y = padT + (plotH / 3) * g;
+      var val = Math.round(max - (max / 3) * g);
+      parts.push('<line x1="' + padL + '" y1="' + y + '" x2="' + (W - 8) + '" y2="' + y +
+                 '" stroke="#14202c" stroke-width="1"/>');
+      if (!seenTick[val]) {
+        seenTick[val] = 1;
+        parts.push('<text class="axis-label" x="2" y="' + (y + 3) + '">' + val + '</text>');
+      }
+    }
+
+    function seriesPath(arr, close) {
+      var pts = [];
+      for (var i = 0; i < n; i++) {
+        var x = padL + (i / (n - 1)) * plotW;
+        var y = padT + plotH - (arr[i] / max) * plotH;
+        pts.push([x, y]);
+      }
+      var d = "M" + pts[0][0].toFixed(1) + "," + pts[0][1].toFixed(1);
+      // smooth with quadratic midpoints
+      for (var k = 1; k < pts.length; k++) {
+        var mx = (pts[k - 1][0] + pts[k][0]) / 2;
+        d += " Q" + mx.toFixed(1) + "," + pts[k - 1][1].toFixed(1) +
+             " " + pts[k][0].toFixed(1) + "," + pts[k][1].toFixed(1);
+      }
+      if (close) {
+        d += " L" + (padL + plotW).toFixed(1) + "," + (padT + plotH) +
+             " L" + padL + "," + (padT + plotH) + " Z";
+      }
+      return d;
+    }
+
+    parts.push('<path d="' + seriesPath(b.total, true) + '" fill="url(#area)"/>');
+    parts.push('<path d="' + seriesPath(b.total, false) +
+               '" fill="none" stroke="#22d3ee" stroke-width="1.7" stroke-linejoin="round"/>');
+    parts.push('<path d="' + seriesPath(b.reason, false) +
+               '" fill="none" stroke="#a78bfa" stroke-width="1.1" stroke-dasharray="3 3" opacity=".85"/>');
+    parts.push('<path d="' + seriesPath(b.safety, false) +
+               '" fill="none" stroke="#fbbf24" stroke-width="1.1" stroke-dasharray="2 4" opacity=".85"/>');
+
+    // x labels: anchor them so the last one is not clipped at the right edge
+    [
+      { i: 0, anchor: "start", x: padL },
+      { i: Math.floor(n / 2), anchor: "middle", x: padL + plotW / 2 },
+      { i: n - 1, anchor: "end", x: padL + plotW }
+    ].forEach(function (t) {
+      var d = new Date(b.start + t.i * b.size);
+      parts.push('<text class="axis-label" x="' + t.x.toFixed(1) + '" y="' + (H - 4) +
+                 '" text-anchor="' + t.anchor + '">' + hhmm(d) + '</text>');
+    });
+
+    svg.innerHTML = grad + parts.join("");
+    $("tl-empty").style.display = state.log.length ? "none" : "flex";
+  }
+
+  // ------------------------------------------------------------------ donut
+  function renderDonut() {
+    var counts = {};
+    var order = [];
+    state.log.forEach(function (e) {
+      var c = categoryOf(e.event);
+      if (counts[c.key] === undefined) { counts[c.key] = 0; order.push(c); }
+      counts[c.key]++;
+    });
+    var total = state.log.length;
+    $("mix-total").textContent = total + (total === 1 ? " event" : " events");
+
+    var svg = $("donut");
+    var cx = 85, cy = 85, r = 58, sw = 16;
+    var C = 2 * Math.PI * r;
+    var parts = ['<circle cx="' + cx + '" cy="' + cy + '" r="' + r +
+                 '" fill="none" stroke="#101a24" stroke-width="' + sw + '"/>'];
+
+    if (!total) {
+      parts.push('<text x="' + cx + '" y="' + (cy + 4) +
+                 '" text-anchor="middle" class="axis-label">no data</text>');
+    } else {
+      var offset = 0;
+      order.forEach(function (c) {
+        var frac = counts[c.key] / total;
+        var len = frac * C;
+        parts.push('<circle cx="' + cx + '" cy="' + cy + '" r="' + r +
+                   '" fill="none" stroke="' + c.hex + '" stroke-width="' + sw +
+                   '" stroke-dasharray="' + len.toFixed(2) + ' ' + (C - len).toFixed(2) +
+                   '" stroke-dashoffset="' + (-offset).toFixed(2) +
+                   '" transform="rotate(-90 ' + cx + ' ' + cy + ')" opacity=".92"/>');
+        offset += len;
+      });
+      parts.push('<text x="' + cx + '" y="' + (cy - 2) +
+                 '" text-anchor="middle" fill="#dbe7f3" font-family="ui-monospace,monospace" ' +
+                 'font-size="20">' + total + '</text>');
+      parts.push('<text x="' + cx + '" y="' + (cy + 14) +
+                 '" text-anchor="middle" class="axis-label">events</text>');
+    }
+    svg.innerHTML = parts.join("");
+
+    $("donut-legend").innerHTML = order.length
+      ? order.map(function (c) {
+          return '<div class="row"><i style="background:' + c.hex + '"></i>' +
+                 esc(c.label) + '<span class="n">' + counts[c.key] + '</span></div>';
+        }).join("")
+      : '<div class="row" style="color:var(--dim)">awaiting first investigation</div>';
+  }
+
+  // -------------------------------------------------------------------- kpis
+  function renderKpis() {
+    var st = state.status || {};
+    var running = st.state === "investigating";
+
+    $("kpi-state").textContent = running ? "RUNNING" : String(st.state || "--").toUpperCase();
+    $("kpi-state").style.color = running ? "var(--cyan)" : "var(--emerald)";
+    $("kpi-state-foot").textContent = running
+      ? truncate(st.current_task || "investigating", 34)
+      : "idle, awaiting alerts";
+
+    var toolCount = state.tools.length;
+    $("kpi-tools").textContent = toolCount || "--";
+    $("kpi-tools-foot").textContent = toolCount
+      ? state.tools.filter(function (t) { return t.reversible; }).length + " reversible"
+      : "registry unavailable";
+
+    $("kpi-events").textContent = state.log.length;
+    var buckets = buildBuckets();
+    $("spark-events").innerHTML = sparkline(buckets.total, 52, 26, "#22d3ee");
+    var reasoned = state.log.filter(function (e) { return categoryOf(e.event).key === "reason"; }).length;
+    $("kpi-events-foot").textContent = state.log.length
+      ? reasoned + (reasoned === 1 ? " reasoning step" : " reasoning steps")
+      : "no activity yet";
+
+    $("kpi-approvals").textContent = state.approvals.length;
+    $("kpi-approvals-foot").textContent = state.approvals.length
+      ? "awaiting human decision" : "nothing pending";
+
+    var last = state.log.length ? parseTs(state.log[state.log.length - 1].timestamp) : null;
+    $("kpi-last").textContent = last ? ago(last) : "--";
+    $("kpi-last-foot").textContent = last ? hhmm(last) + " UTC" : "idle";
+  }
+
+  // ---------------------------------------------------------------- topbar
+  function renderTopbar() {
+    var st = state.status || {};
+    var running = st.state === "investigating";
+    var pill = $("statepill");
+    pill.className = "pill " + (running ? "warn" : "ok");
+    $("statetext").textContent = running ? "investigating" : (st.state || "idle");
+    pill.querySelector(".dot").classList.toggle("dot-live", running);
+
+    if (state.health && state.health.model) {
+      $("modeltext").textContent = state.health.model;
+    } else {
+      $("modeltext").textContent = "model unknown";
+    }
+
+    var link = $("linkpill");
+    link.className = "pill " + (state.online ? "ok" : "bad");
+    $("linktext").textContent = state.online ? "api linked" : "api offline";
+
+    $("banner").classList.toggle("show", !state.online);
+    if (!state.online) {
+      $("bannertext").textContent = state.lastOk
+        ? "Agent API unreachable \u2014 last contact " + ago(state.lastOk) + ", showing stale data"
+        : "Agent API unreachable \u2014 check that soc-agent is up, and that nginx is proxying /api";
+    }
+  }
+
+  // -------------------------------------------------------------- approvals
+  function renderApprovals() {
+    var host = $("approvals");
+    $("ap-count").textContent = state.approvals.length;
+
+    if (!state.approvals.length) {
+      host.innerHTML = '<div class="empty">No actions waiting for approval.<br>' +
+                       'Blast-radius gate is clear.</div>';
+      return;
+    }
+
+    host.innerHTML = state.approvals.map(function (a) {
+      var br = Number(a.blast_radius || 0);
+      var sev = br >= 8 ? "b-critical" : br >= 6 ? "b-high" : "b-medium";
+      return '<div class="approval">' +
+        '<div class="top">' +
+          '<span class="tool">' + esc(a.tool || "action") + '</span>' +
+          '<span class="badge ' + sev + '">blast ' + br + '/10</span>' +
+          '<span class="badge ' + (a.reversible ? "b-low" : "b-critical") + '">' +
+            (a.reversible ? "reversible" : "irreversible") + '</span>' +
+        '</div>' +
+        '<div class="params">' + esc(JSON.stringify(a.params || {}, null, 1)) + '</div>' +
+        '<div class="btns">' +
+          '<button class="good" data-approve="' + esc(a.approval_id) + '">Approve</button>' +
+          '<button class="bad" data-reject="' + esc(a.approval_id) + '">Reject</button>' +
+        '</div>' +
+      '</div>';
+    }).join("");
+  }
+
+  // ------------------------------------------------------------------ tools
+  function renderTools() {
+    var host = $("tools");
+    $("tool-count").textContent = state.tools.length + " tools";
+    if (!state.tools.length) {
+      host.innerHTML = '<div class="empty">Tool registry unavailable.</div>';
+      return;
+    }
+    host.innerHTML = state.tools.map(function (t) {
+      var br = Math.max(0, Math.min(10, Number(t.blast_radius || 0)));
+      var hex = br >= 8 ? "#f87171" : br >= 6 ? "#fb923c" : br >= 4 ? "#fbbf24" : "#34d399";
+      var bars = "";
+      for (var i = 1; i <= 10; i++) {
+        bars += '<i style="background:' + (i <= br ? hex : "#16222e") + '"></i>';
+      }
+      return '<div class="tool">' +
+        '<div class="name">' + esc(t.name) + '</div>' +
+        '<div class="desc">' + esc(t.description) + '</div>' +
+        '<div class="meter" title="blast radius ' + br + '/10">' + bars + '</div>' +
+        '<div style="margin-top:7px"><span class="badge ' +
+          (t.reversible ? "b-low" : "b-high") + '">' +
+          (t.reversible ? "reversible" : "irreversible") + '</span></div>' +
+      '</div>';
+    }).join("");
+  }
+
+  // ----------------------------------------------------------------- ledger
+  function renderLedger() {
+    var host = $("ledger");
+    $("ledger-count").textContent = state.ledger.length + " entries";
+    if (!state.ledger.length) {
+      host.innerHTML = '<div class="empty">Ledger empty. Every executed action ' +
+                       'appends an undo command here.</div>';
+      return;
+    }
+    var rows = state.ledger.slice().reverse().slice(0, 8).map(function (l) {
+      var d = parseTs(l.timestamp);
+      return '<tr>' +
+        '<td class="mono">' + hhmm(d) + '</td>' +
+        '<td class="mono">' + esc(l.tool) + '</td>' +
+        '<td class="mono">' + esc(truncate(l.rollback_cmd || "\u2014", 46)) +
+          (l.rollback_cmd
+            ? '<button class="copy" data-copy="' + esc(l.rollback_cmd) + '">copy</button>'
+            : '') +
+        '</td>' +
+      '</tr>';
+    }).join("");
+    host.innerHTML = '<table><thead><tr><th>Time</th><th>Tool</th><th>Undo command</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+
+  // ----------------------------------------------------------------- stream
+  function renderStream() {
+    var host = $("stream");
+    if (!state.log.length) {
+      host.innerHTML = '<div class="empty">Awaiting agent activity\u2026</div>';
+      return;
+    }
+    var recent = state.log.slice(-14).reverse();
+    host.innerHTML = recent.map(function (e) {
+      var c = categoryOf(e.event);
+      var isNew = !state.seenEventIds[e.event + "|" + e.timestamp + "|" + e.message];
+      state.seenEventIds[e.event + "|" + e.timestamp + "|" + e.message] = true;
+      var d = parseTs(e.timestamp);
+      return '<div class="event ev-' + c.key + (isNew ? " slide-in" : "") + '">' +
+        '<span class="t">' + hhmm(d) + ' &middot; ' + esc(truncate(e.event, 22)) + '</span>' +
+        '<span class="m">' + esc(truncate(e.message, 90)) + '</span>' +
+      '</div>';
+    }).join("");
+  }
+
+  // ----------------------------------------------------------------- memory
+  function renderMemory() {
+    var host = $("memory");
+    $("mem-count").textContent = state.memory.length + " episodes";
+    if (!state.memory.length) {
+      host.innerHTML = '<div class="empty">No episodes stored yet. Completed ' +
+                       'investigations are recalled here for similar future alerts.</div>';
+      return;
+    }
+    host.innerHTML = state.memory.slice(-6).reverse().map(function (m) {
+      var d = parseTs(m.timestamp);
+      return '<div class="mem">' +
+        '<div class="q">' + esc(truncate(m.trigger || m.alert || "(episode)", 150)) + '</div>' +
+        '<div class="t">' + (d ? hhmm(d) + " UTC" : "no timestamp") + '</div>' +
+      '</div>';
+    }).join("");
+  }
+
+  // ----------------------------------------------------------------- render
+  function render() {
+    renderTopbar();
+    renderKpis();
+    renderTimeline();
+    renderDonut();
+    renderApprovals();
+    renderTools();
+    renderLedger();
+    renderStream();
+    renderMemory();
+  }
+
+  // ------------------------------------------------------------------- poll
+  function poll() {
+    Promise.all([
+      getJSON("/status").catch(function () { return null; }),
+      getJSON("/log?limit=200").catch(function () { return null; }),
+      getJSON("/approvals").catch(function () { return null; }),
+      getJSON("/rollback-ledger").catch(function () { return null; }),
+      getJSON("/memory").catch(function () { return null; }),
+      getJSON("/tools").catch(function () { return null; }),
+      getJSON("/health").catch(function () { return null; })
+    ]).then(function (r) {
+      var status = r[0], log = r[1], approvals = r[2], ledger = r[3],
+          memory = r[4], tools = r[5], health = r[6];
+
+      var anyOk = [status, log, approvals, ledger, memory, tools].some(function (x) { return x !== null; });
+      state.online = anyOk;
+      if (anyOk) state.lastOk = new Date();
+
+      if (status) state.status = status;
+      if (log && Array.isArray(log.log)) state.log = log.log;
+      if (approvals && Array.isArray(approvals.pending)) state.approvals = approvals.pending;
+      if (ledger && Array.isArray(ledger.ledger)) state.ledger = ledger.ledger;
+      if (memory && Array.isArray(memory.episodes)) state.memory = memory.episodes;
+      if (tools && Array.isArray(tools.tools)) state.tools = tools.tools;
+      if (health) state.health = health;
+
+      render();
+    });
+  }
+
+  // ----------------------------------------------------------------- events
+  var CHIP_IDEAS = [
+    "SSH brute force \u2014 47 failed attempts from 192.168.100.50 against victim-node",
+    "Port scan \u2014 1024 ports probed from 192.168.100.50",
+    "Vulnerable OpenSSH detected on 192.168.100.10",
+    "Suspicious outbound connection to unknown host"
+  ];
+
+  function initChips() {
+    $("chips").innerHTML = CHIP_IDEAS.map(function (t, i) {
+      return '<button class="chip" data-idea="' + i + '">' + esc(truncate(t.split(" \u2014 ")[0], 34)) + '</button>';
+    }).join("");
+  }
+
+  function dispatch() {
+    var text = $("alert").value.trim();
+    if (!text) { $("alert").focus(); return; }
+    var btn = $("dispatch");
+    btn.disabled = true;
+    $("dispatch-hint").textContent = "dispatching\u2026";
+
+    fetch(API + "/investigate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alert: text })
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      $("dispatch-hint").textContent = "queued " + (res.investigation_id || "");
+      $("alert").value = "";
+      poll();
+    }).catch(function (e) {
+      $("dispatch-hint").textContent = "failed: " + e.message;
+    }).finally(function () {
+      btn.disabled = false;
+      setTimeout(function () { $("dispatch-hint").textContent = "Ctrl+Enter"; }, 6000);
+    });
+  }
+
+  document.addEventListener("click", function (ev) {
+    var t = ev.target;
+    if (!t || t.tagName !== "BUTTON") return;
+
+    if (t.id === "dispatch") { dispatch(); return; }
+
+    var idea = t.getAttribute("data-idea");
+    if (idea !== null) {
+      $("alert").value = CHIP_IDEAS[Number(idea)];
+      $("alert").focus();
+      return;
+    }
+
+    var ap = t.getAttribute("data-approve");
+    if (ap) {
+      t.disabled = true;
+      postJSON("/approvals/" + encodeURIComponent(ap) + "/approve").then(poll, poll);
+      return;
+    }
+
+    var rj = t.getAttribute("data-reject");
+    if (rj) {
+      t.disabled = true;
+      postJSON("/approvals/" + encodeURIComponent(rj) + "/reject").then(poll, poll);
+      return;
+    }
+
+    var cp = t.getAttribute("data-copy");
+    if (cp) {
+      if (navigator.clipboard) navigator.clipboard.writeText(cp);
+      var old = t.textContent;
+      t.textContent = "copied";
+      setTimeout(function () { t.textContent = old; }, 1200);
+    }
+  });
+
+  $("alert").addEventListener("keydown", function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") dispatch();
+  });
+
+  // ------------------------------------------------------------------ clock
+  setInterval(function () {
+    var d = new Date();
+    $("clock").textContent = d.toISOString().slice(11, 19) + " UTC";
+  }, 1000);
+
+  // ------------------------------------------------------------------- boot
+  initChips();
+  poll();
+  setInterval(poll, POLL_MS);
+})();
+</script>
+</body>
+</html>
